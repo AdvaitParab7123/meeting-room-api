@@ -1,10 +1,13 @@
 import ssl
 import sys
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 from datetime import datetime
-from typing import List, Dict
+from typing import List
+
 import uvicorn
 
 # Ensure SSL module is available
@@ -14,7 +17,7 @@ if "ssl" not in sys.modules:
 app = FastAPI()
 security = HTTPBasic()
 
-# Hardcoded user credentials (For production, use a proper authentication mechanism)
+# Hardcoded user credentials (For production, use a secure authentication mechanism)
 USERNAME = "admin"
 PASSWORD = "password123"
 
@@ -22,6 +25,12 @@ def authenticate(credentials: HTTPBasicCredentials = Depends(security)):
     if credentials.username != USERNAME or credentials.password != PASSWORD:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     return credentials
+
+# Google Sheets Setup
+SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+CREDS = ServiceAccountCredentials.from_json_keyfile_name("service_account.json", SCOPE)
+CLIENT = gspread.authorize(CREDS)
+SHEET = CLIENT.open("Meeting Room Bookings").sheet1  # Change to your sheet name
 
 # Data storage
 meeting_rooms = {}  # Dictionary to store room details
@@ -61,8 +70,18 @@ def book_room(booking: Booking, credentials: HTTPBasicCredentials = Depends(auth
         ):
             raise HTTPException(status_code=400, detail="Room already booked for this time")
     
+    # Add booking to local storage
     bookings.append(booking.dict())
-    return {"message": "Room booked successfully"}
+
+    # Append booking to Google Sheet
+    SHEET.append_row([
+        booking.room_name, 
+        booking.start_time.strftime("%Y-%m-%d %H:%M:%S"),
+        booking.end_time.strftime("%Y-%m-%d %H:%M:%S"),
+        booking.booked_by
+    ])
+
+    return {"message": "Room booked successfully and recorded in Google Sheets"}
 
 @app.get("/bookings")
 def list_bookings(credentials: HTTPBasicCredentials = Depends(authenticate)):
