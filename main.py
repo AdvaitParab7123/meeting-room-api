@@ -1,13 +1,12 @@
 import ssl
 import sys
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 from datetime import datetime
-from typing import List
-
+from typing import List, Dict
 import uvicorn
 
 # Ensure SSL module is available
@@ -17,7 +16,7 @@ if "ssl" not in sys.modules:
 app = FastAPI()
 security = HTTPBasic()
 
-# Hardcoded user credentials (For production, use a secure authentication mechanism)
+# Hardcoded user credentials (For production, use a proper authentication mechanism)
 USERNAME = "admin"
 PASSWORD = "password123"
 
@@ -26,11 +25,17 @@ def authenticate(credentials: HTTPBasicCredentials = Depends(security)):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     return credentials
 
-# Google Sheets Setup
-SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-CREDS = ServiceAccountCredentials.from_json_keyfile_name("service_account.json", SCOPE)
-CLIENT = gspread.authorize(CREDS)
-SHEET = CLIENT.open("Meeting Room Bookings").sheet1  # Change to your sheet name
+# Load Google Sheets credentials
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = Credentials.from_service_account_file("service_account.json", scopes=scope)
+client = gspread.authorize(creds)
+
+# Open Google Sheet
+SHEET_NAME = "Meeting Room Bookings"
+try:
+    sheet = client.open(SHEET_NAME).sheet1
+except Exception as e:
+    raise Exception(f"Failed to open Google Sheet: {e}")
 
 # Data storage
 meeting_rooms = {}  # Dictionary to store room details
@@ -70,18 +75,22 @@ def book_room(booking: Booking, credentials: HTTPBasicCredentials = Depends(auth
         ):
             raise HTTPException(status_code=400, detail="Room already booked for this time")
     
-    # Add booking to local storage
-    bookings.append(booking.dict())
+    # Save to local bookings
+    booking_data = booking.dict()
+    bookings.append(booking_data)
 
-    # Append booking to Google Sheet
-    SHEET.append_row([
-        booking.room_name, 
-        booking.start_time.strftime("%Y-%m-%d %H:%M:%S"),
-        booking.end_time.strftime("%Y-%m-%d %H:%M:%S"),
-        booking.booked_by
-    ])
+    # Save to Google Sheets
+    try:
+        sheet.append_row([
+            booking.room_name,
+            booking.start_time.strftime("%Y-%m-%d %H:%M:%S"),
+            booking.end_time.strftime("%Y-%m-%d %H:%M:%S"),
+            booking.booked_by
+        ])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save booking to Google Sheets: {e}")
 
-    return {"message": "Room booked successfully and recorded in Google Sheets"}
+    return {"message": "Room booked successfully"}
 
 @app.get("/bookings")
 def list_bookings(credentials: HTTPBasicCredentials = Depends(authenticate)):
