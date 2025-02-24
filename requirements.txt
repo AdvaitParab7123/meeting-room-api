@@ -1,6 +1,12 @@
+HEAD
 fastapi
 uvicorn
 gspread
 google-auth
 google-auth-oauthlib
 google-auth-httplib2
+
+fastapi
+uvicorn
+python-dotenv
+15d8bca (Add FastAPI app and deployment files)
